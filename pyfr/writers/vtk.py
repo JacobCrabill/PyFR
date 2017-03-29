@@ -121,23 +121,27 @@ class VTKWriter(BaseWriter):
 
         return fields
 
-    def _get_npts_ncells_nnodes(self, mk):
+    def _get_npts_ncells_nnodes(self, mk, sk):
         m_inf = self.mesh_inf[mk]
+        if 'iblank' in self.soln._file[sk].attrs:
+            neles = np.count_nonzero(self.soln._file[sk].attrs['iblank'])
+        else:
+            neles = m_inf[1][1]
 
         # Get the shape and sub division classes
         shapecls = subclass_where(BaseShape, name=m_inf[0])
         subdvcls = subclass_where(BaseShapeSubDiv, name=m_inf[0])
 
         # Number of vis points
-        npts = shapecls.nspts_from_order(self.divisor + 1)*m_inf[1][1]
+        npts = shapecls.nspts_from_order(self.divisor + 1)*neles
 
         # Number of sub cells and nodes
-        ncells = len(subdvcls.subcells(self.divisor))*m_inf[1][1]
-        nnodes = len(subdvcls.subnodes(self.divisor))*m_inf[1][1]
+        ncells = len(subdvcls.subcells(self.divisor))*neles
+        nnodes = len(subdvcls.subnodes(self.divisor))*neles
 
         return npts, ncells, nnodes
 
-    def _get_array_attrs(self, mk=None):
+    def _get_array_attrs(self, mk=None, sk=None):
         dtype = 'Float32' if self.dtype == np.float32 else 'Float64'
         dsize = np.dtype(self.dtype).itemsize
 
@@ -154,7 +158,7 @@ class VTKWriter(BaseWriter):
 
         # If a mesh has been given the compute the sizes
         if mk:
-            npts, ncells, nnodes = self._get_npts_ncells_nnodes(mk)
+            npts, ncells, nnodes = self._get_npts_ncells_nnodes(mk,sk)
             nb = npts*dsize
 
             sizes = [3*nb, 4*nnodes, 4*ncells, ncells]
@@ -208,7 +212,7 @@ class VTKWriter(BaseWriter):
 
                 # Header
                 for mk, sk in misil:
-                    off = self._write_serial_header(fh, mk, off)
+                    off = self._write_serial_header(fh, mk, sk, off)
 
                 write_s_to_fh('</UnstructuredGrid>\n'
                               '<AppendedData encoding="raw">\n_')
@@ -242,9 +246,9 @@ class VTKWriter(BaseWriter):
         np.uint32(array.nbytes).tofile(vtuf)
         array.tofile(vtuf)
 
-    def _write_serial_header(self, vtuf, mk, off):
-        names, types, comps, sizes = self._get_array_attrs(mk)
-        npts, ncells = self._get_npts_ncells_nnodes(mk)[:2]
+    def _write_serial_header(self, vtuf, mk, sk, off):
+        names, types, comps, sizes = self._get_array_attrs(mk, sk)
+        npts, ncells = self._get_npts_ncells_nnodes(mk, sk)[:2]
 
         write_s = lambda s: vtuf.write(s.encode('utf-8'))
         write_s('<Piece NumberOfPoints="{0}" NumberOfCells="{1}">\n'
@@ -295,6 +299,12 @@ class VTKWriter(BaseWriter):
         mesh = self.mesh[mk].astype(self.dtype)
         soln = self.soln[sk].swapaxes(0, 1).astype(self.dtype)
 
+        # Mask by iblank
+        if 'iblank' in  self.soln._file[sk].attrs:
+            mask = self.soln._file[sk].attrs['iblank'] == 1
+            mesh = mesh[:, mask]
+            soln = soln[:, :, mask]
+
         # Dimensions
         nspts, neles = mesh.shape[:2]
 
@@ -309,6 +319,50 @@ class VTKWriter(BaseWriter):
         # Calculate node locations of VTU elements
         vpts = np.dot(mesh_vtu_op, mesh.reshape(nspts, -1))
         vpts = vpts.reshape(nsvpts, -1, self.ndims)
+
+        # Apply rotation quaternion to moving grid
+        if self.stats.hasopt('moving-grid','rot-q'):
+            qrot = [float(x) for x in self.stats.get('moving-grid','rot-q').split()]
+
+            # Quaternion -> Rotation Matix
+            amag = np.linalg.norm(qrot[1:4])
+            ax,ay,az = (qrot[1],qrot[2],qrot[3])
+            if amag > 1e-8:
+                ax,ay,az = (ax,ay,az)/amag
+
+            qmag = np.linalg.norm(qrot)
+            theta = 2*np.arccos(qrot[0]/qmag)
+            s = np.sin(theta)
+            c = np.cos(theta)
+            c1 = 1-c
+
+            axyc = ax*ay*c1
+            axzc = ax*az*c1
+            ayzc = ay*az*c1
+
+            Rmat = np.zeros([3,3])
+
+            Rmat[0,0] = c + ax*ax*c1
+            Rmat[0,1] = axyc - az*s
+            Rmat[0,2] = axzc + ay*s
+
+            Rmat[1,0] = axyc + az*s
+            Rmat[1,1] = c + ay*ay*c1
+            Rmat[1,2] = ayzc - ax*s
+
+            Rmat[2,0] = axzc - ay*s
+            Rmat[2,1] = ayzc + ax*s
+            Rmat[2,2] = c + az*az*c1
+
+            # Apply rotation matrix
+            for i in range(0,vpts.shape[0]):
+                vpts[i,:,:] = np.dot(vpts[i,:,:],Rmat.T)
+
+        # Translate moving grid
+        if self.stats.hasopt('moving-grid','x-cg'):
+            xcg = [float(x) for x in self.stats.get('moving-grid','x-cg').split()]
+            for d in range(0,self.ndims):
+                vpts[:,:,d] += xcg[d]
 
         # Pre-process the solution
         soln = self._pre_proc_fields(name, mesh, soln).swapaxes(0, 1)
