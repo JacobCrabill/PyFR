@@ -3,6 +3,7 @@
 from pyfr.readers.base import BaseReader, NodalMeshAssembler
 from pyfr.readers.cgns import CGNSReader
 from pyfr.readers.gmsh import GmshReader
+from pyfr.readers.hopr import HOPRReader
 
 from pyfr.util import subclasses, subclass_where
 
