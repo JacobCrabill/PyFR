@@ -28,11 +28,11 @@ class HOPRReader(BaseReader):
         if lin < 10:
             typ = {3: 'tri', 4: 'quad'}[n_cpts]
             spts = {0: n_cpts, 1: n_cpts,
-                    2: basismap[typ].nspts_from_order(self.ng+1)}[lin]
+                    2: np.asscalar(basismap[typ].nspts_from_order(self.ng+1))}[lin]
         else:
             typ = {4: 'tet', 5: 'pyr', 6: 'pri', 8: 'hex'}[n_cpts]
             spts = {10: n_cpts, 11: n_cpts,
-                    20: basismap[typ].nspts_from_order(self.ng+1)}[lin]
+                    20: np.asscalar(basismap[typ].nspts_from_order(self.ng+1))}[lin]
 
         return typ, spts
 
@@ -73,6 +73,10 @@ class HOPRReader(BaseReader):
             bc_index = np.where(sides[:, 4] == i)[0]
             gf_map[i] = {gi-1: ii for ii, gi in
                          enumerate(sorted(set(abs(sides[bc_index, 1]))))}
+
+            if len(gf_map[i]) == 0: # Ignore nonexistant internal boundaries
+                continue;
+
             if i:
                 name = bc_name[i]
                 shp = [len(gf_map[i])]
