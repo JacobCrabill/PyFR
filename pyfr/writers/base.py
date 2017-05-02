@@ -35,6 +35,9 @@ class BaseWriter(object):
         self.ndims = next(iter(self.mesh_inf.values()))[1][2]
         self.nvars = next(iter(self.soln_inf.values()))[1][1]
 
+        # Find out if extra processing needed
+        self.overset = self.cfg.get('solver', 'overset', 'false')
+
         # System and elements classes
         self.systemscls = subclass_where(
             BaseSystem, name=self.cfg.get('solver', 'system')

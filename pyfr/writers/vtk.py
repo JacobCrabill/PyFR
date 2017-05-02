@@ -123,8 +123,10 @@ class VTKWriter(BaseWriter):
 
     def _get_npts_ncells_nnodes(self, mk, sk):
         m_inf = self.mesh_inf[mk]
-        if 'iblank' in self.soln._file[sk].attrs:
-            neles = np.count_nonzero(self.soln._file[sk].attrs['iblank'])
+        
+        if self.overset:
+            iname = 'iblank_' + sk[5:]
+            neles = np.count_nonzero(self.soln[iname])
         else:
             neles = m_inf[1][1]
 
@@ -300,8 +302,10 @@ class VTKWriter(BaseWriter):
         soln = self.soln[sk].swapaxes(0, 1).astype(self.dtype)
 
         # Mask by iblank
-        if 'iblank' in  self.soln._file[sk].attrs:
-            mask = self.soln._file[sk].attrs['iblank'] == 1
+        if self.overset:
+            #if any('iblank' in k for k in self.soln_inf.keys()):
+            ik = 'iblank_' + sk[5:]  # i.e. 'iblank_hex_p0'
+            mask = np.squeeze(self.soln[ik]) == 1
             mesh = mesh[:, mask]
             soln = soln[:, :, mask]
 

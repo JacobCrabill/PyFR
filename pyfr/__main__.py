@@ -4,6 +4,7 @@
 from argparse import ArgumentParser, FileType
 import itertools as it
 import os
+import numpy as np
 
 import mpi4py.rc
 mpi4py.rc.initialize = False
@@ -175,7 +176,10 @@ def process_partition(args):
         # Save to disk
         with h5py.File(path, 'w') as f:
             for k, v in data.items():
-                f[k] = v
+                if 'iblank' in k:
+                    f[k] = np.squeeze(v)
+                else:
+                    f[k] = v
 
 
 def process_export(args):

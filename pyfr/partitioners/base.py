@@ -106,6 +106,10 @@ class BasePartitioner(object):
 
         for f, (en, shape) in soln.array_info('soln').items():
             newsoln['soln_{0}_p0'.format(en)].append(soln[f])
+            
+        if any('iblank' in k for k in soln.keys()):
+            for f, (en, shape) in soln.array_info('iblank').items():
+                newsoln['iblank_{0}_p0'.format(en)].append(np.reshape(soln[f], [1,1,max(shape)]))
 
         newsoln = {k: np.dstack(v) for k, v in newsoln.items()}
         newsoln['config'] = soln['config']
@@ -174,8 +178,26 @@ class BasePartitioner(object):
             soln_px[etype, part].append(soln_p0[etype][..., eidxg])
 
         # Stack
-        return {'soln_{0}_p{1}'.format(*k): np.dstack(v)
+        newsoln = {'soln_{0}_p{1}'.format(*k): np.dstack(v)
                 for k, v in soln_px.items()}
+
+        if any('iblank' in k for k in soln.keys()):
+            # Get the iblank arrays from the file
+            iblank_p0 = {}
+            for f in soln:
+                if f.startswith('iblank_'): 
+                    iblank_p0[f.split('_')[1]] = np.squeeze(soln[f])
+            
+            # Partition the iblank arrays
+            iblank_px = defaultdict(list)
+            for (etype, eidxg), part in zip(vetimap, vparts):
+                iblank_px[etype, part].append(iblank_p0[etype][eidxg])
+            
+            # Append to partitioned solution dict
+            newsoln.update(('iblank_{0}_p{1}'.format(*k), np.dstack(v))
+                           for k, v in iblank_px.items())
+
+        return newsoln
 
     def _partition_con(self, mesh, vparts, vetimap):
         con_px = defaultdict(list)

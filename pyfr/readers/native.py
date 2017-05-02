@@ -43,7 +43,7 @@ class NativeReader(Mapping):
         ftypes = sorted({n.split('_')[1] for n in names})
 
         # Highest partition number in the file
-        fmaxpn = max(int(re.search(r'\d+$', n).group(0)) for n in names)
+        fmaxpn = max(int(re.search(r'\d+$', n).group(0)) for n in names if re.search(r'\d+$', n) is not None)
 
         # Extract array information
         info = OrderedDict()

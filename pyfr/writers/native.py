@@ -56,12 +56,17 @@ class NativeWriter(object):
                     name = self._get_name_for_data(etype, prank)
                     self._global_shape_list.append((name, shape))
 
+                    if self.overset:
+                        iname = self._get_name_for_iblank(etype, prank)
+                        self._global_shape_list.append((iname, [shape[2]]))
+
                     if rank == mrank:
                         loc_names.append(name)
+                        if self.overset:
+                            loc_names.append(iname)
         # Serial I/O
         else:
             self._write = self._write_serial
-
             if rank == root:
                 self._mpi_rbufs = mpi_rbufs = []
                 self._mpi_rreqs = mpi_rreqs = []
@@ -72,9 +77,13 @@ class NativeWriter(object):
                     prank = intg.rallocs.mprankmap[mrank]
                     for tag, (etype, shape) in enumerate(meleinfo):
                         name = self._get_name_for_data(etype, prank)
+                        if self.overset:
+                            iname = self._get_name_for_iblank(etype, prank)
 
                         if mrank == root:
                             loc_names.append(name)
+                            if self.overset:
+                                loc_names.append(iname)
                         else:
                             rbuf = np.empty(shape, dtype=self.fpdtype)
                             rreq = comm.Recv_init(rbuf, mrank, tag)
@@ -82,6 +91,16 @@ class NativeWriter(object):
                             mpi_rbufs.append(rbuf)
                             mpi_rreqs.append(rreq)
                             mpi_names.append(name)
+
+                            # For overset grids, also gather iblank data
+                            if self.overset:
+                                itag = tag + len(meleinfo)
+                                rbuf = np.empty([shape[2]], dtype='i1')
+                                rreq = comm.Recv_init(rbuf, mrank, itag)
+
+                                mpi_rbufs.append(rbuf)
+                                mpi_rreqs.append(rreq)
+                                mpi_names.append(iname)
 
     def write(self, data, metadata, tcurr):
         # Determine the output path
@@ -119,6 +138,9 @@ class NativeWriter(object):
 
         return os.path.join(self.basedir, fname)
 
+    def _get_name_for_iblank(self, etype, prank):
+        return '{}_{}_p{}'.format('iblank', etype, prank)
+
     def _get_name_for_data(self, etype, prank):
         return '{}_{}_p{}'.format(self.prefix, etype, prank)
 
@@ -128,9 +150,14 @@ class NativeWriter(object):
         with h5py.File(path, 'w', driver='mpio', comm=comm) as h5file:
             dmap = {}
             for name, shape in self._global_shape_list:
-                dmap[name] = h5file.create_dataset(
-                    name, shape, dtype=self.fpdtype
-                )
+                if 'iblank' in name:
+                    dmap[name] = h5file.create_dataset(
+                        name, shape, dtype='i1'
+                    )
+                else:
+                    dmap[name] = h5file.create_dataset(
+                        name, shape, dtype=self.fpdtype
+                    )
 
             for s, dat in zip(self._loc_names, data):
                 dmap[s][:] = dat
@@ -174,4 +201,7 @@ class NativeWriter(object):
 
             with h5py.File(path, 'w') as h5file:
                 for k, v in outdict.items():
-                    h5file[k] = v
+                    if 'iblank' in k:
+                        h5file[k] = np.squeeze(v)
+                    else:
+                        h5file[k] = v
