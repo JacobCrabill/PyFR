@@ -36,7 +36,7 @@ class BaseWriter(object):
         self.nvars = next(iter(self.soln_inf.values()))[1][1]
 
         # Find out if extra processing needed
-        self.overset = self.cfg.get('solver', 'overset', 'false')
+        self.overset = self.cfg.get('solver', 'overset', 'false') == 'true'
 
         # System and elements classes
         self.systemscls = subclass_where(
