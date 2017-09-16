@@ -170,8 +170,12 @@ class METISPartitioner(BasePartitioner):
             part_graph_fn = w.METIS_PartGraphKway
 
         # Integer parameters
-        nvert, nconst = w.metis_int(len(vtab) - 1), w.metis_int(1)
+        # HACK 9/15/17 - adding element weighting constraints
+        #nvert, nconst = w.metis_int(len(vtab) - 1), w.metis_int(1)
+        nvert, nconst = w.metis_int(len(vtab) - 1), w.metis_int(graph.ncon)
         npart, objval = w.metis_int(len(partwts)), w.metis_int()
+
+        partwts = np.hstack([partwts,partwts]) # HACK - 2 constraints
 
         # Partition
         part_graph_fn(

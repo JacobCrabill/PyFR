@@ -7,7 +7,7 @@ import uuid
 import numpy as np
 
 
-Graph = namedtuple('Graph', ['vtab', 'etab', 'vwts', 'ewts'])
+Graph = namedtuple('Graph', ['vtab', 'etab', 'ncon', 'vwts', 'ewts'])
 
 
 class BasePartitioner(object):
@@ -114,6 +114,9 @@ class BasePartitioner(object):
         return newsoln
 
     def _construct_graph(self, mesh):
+        cent = np.array(mesh['spt_hex_p0'])
+        cent = np.linalg.norm(np.mean(cent, axis=0), axis=1)
+
         # Edges of the dual graph
         con = mesh['con_p0'].astype('U4,i4,i1,i1')
         con = np.hstack([con, con[::-1]])
@@ -136,11 +139,31 @@ class BasePartitioner(object):
         # Prepare the list of edges for each vertex
         etab = np.array([etivmap[tuple(r)] for r in rhs])
 
+        # Set the number of constraints used to balance the partitioning
+        ncon = 1
+
         # Prepare the list of vertex and edge weights
-        vwts = np.array([self.elewts[t] for t, i in vetimap])
+        # HACK 9/15/17 - for overset golf ball partitioning
+        ncon = 2
+        vwts = []
+        for t, i in vetimap:
+            cut_ro = .034
+            cut_ri = .028
+            # First constraint: keep ele count ~= per rank
+            vwts.append(1)
+            # Second constraint: overset-boundary eles expensive
+            fac = 1
+            if cent[i] <= cut_ro and cent[i] >= cut_ri:
+              fac = 20
+            vwts.append(fac)
+
+        vwts = np.array(vwts, dtype=np.int64)
+        # END HACK
+
+        #vwts = np.array([self.elewts[t] for t, i in vetimap])
         ewts = np.ones_like(etab)
 
-        return Graph(vtab, etab, vwts, ewts), vetimap
+        return Graph(vtab, etab, ncon, vwts, ewts), vetimap
 
     def _partition_graph(self, graph, partwts):
         pass
